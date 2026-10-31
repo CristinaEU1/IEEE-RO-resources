@@ -5,27 +5,51 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>IEEE Romania Resources</title>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; color: #222; }
+  body { font-family: system-ui, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; color: #222; background: #fff; }
   h1 { margin-bottom: 4px; }
   .views { color: #666; margin-bottom: 28px; }
+
+  /* Logo row */
+  .logos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 28px; }
+  .logo { height: 80px; display: flex; align-items: center; justify-content: center; border-radius: 8px; }
+  .logo img { max-width: 100%; max-height: 80px; object-fit: contain; }
+  .logo.placeholder { border: 2px dashed #c9c9c9; color: #999; font-size: 0.85em; }
+
+  /* Folder sections */
+  details.folder { border: 1px solid #e3e3e3; border-radius: 8px; margin-bottom: 16px; overflow: hidden; }
+  details.folder > summary { cursor: pointer; list-style: none; padding: 12px 14px; background: #f5f7fa;
+                             display: flex; align-items: center; gap: 10px; font-weight: 600; }
+  details.folder > summary::-webkit-details-marker { display: none; }
+  details.folder > summary::before { content: "▸"; color: #0b5cad; transition: transform .15s; }
+  details.folder[open] > summary::before { transform: rotate(90deg); }
+  .folder-count { margin-left: auto; font-weight: 400; font-size: 0.85em; color: #777; }
+
   table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #e3e3e3; }
-  th { font-size: 0.85em; text-transform: uppercase; color: #777; }
-  td.num { text-align: right; white-space: nowrap; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid #e3e3e3; }
+  tr:last-child td { border-bottom: none; }
+  th { font-size: 0.8em; text-transform: uppercase; color: #777; }
+  td.num, th.num { text-align: right; white-space: nowrap; }
   a.btn { background: #0b5cad; color: #fff; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 0.9em; }
   a.btn:hover { background: #084a8c; }
+  .msg { color: #666; padding: 12px 0; }
   .updated { color: #999; font-size: 0.8em; margin-top: 16px; }
+
+  @media (max-width: 480px) {
+    .logos { gap: 8px; }
+    .logo { height: 56px; }
+    .logo img { max-height: 56px; }
+    th, td { padding: 8px 10px; }
+  }
 </style>
 </head>
 <body>
 
+<div class="logos" id="logos"></div>
+
 <h1>IEEE Romania Resources</h1>
 <p class="views">Unique visitors: <strong id="views">…</strong></p>
 
-<table>
-  <thead><tr><th>Document</th><th class="num">Downloads</th><th></th></tr></thead>
-  <tbody id="files"><tr><td colspan="3">Loading…</td></tr></tbody>
-</table>
+<div id="folders"><p class="msg">Loading…</p></div>
 <p class="updated" id="updated"></p>
 
 <script>
@@ -34,7 +58,27 @@
   const GH_REPO     = "IEEE-RO-resources";
   const GH_TAG      = "v1";                    // tag of the release holding the counter file
   const VIEW_ASSET  = "pageviews.dat";         // tiny file attached to that release
+
+  // Logos shown at the top (left to right). Leave src empty for a placeholder.
+  // src:  image file in the repo's "logos" folder, e.g. "logos/ieee-romania.png"
+  // link: optional web address the logo opens when clicked
+  const LOGOS = [
+    { src: "", alt: "Logo 1", link: "" },
+    { src: "", alt: "Logo 2", link: "" },
+    { src: "", alt: "Logo 3", link: "" },
+  ];
+
+  // Folders: each GitHub Release is one folder, named after the release title.
+  // Folders open by default; set to false to show them collapsed.
+  const FOLDERS_OPEN = true;
   // =========================================
+
+  // --- Logos ---
+  document.getElementById("logos").innerHTML = LOGOS.map(l => {
+    if (!l.src) return `<div class="logo placeholder">${l.alt}</div>`;
+    const img = `<img src="${l.src}" alt="${l.alt}">`;
+    return `<div class="logo">${l.link ? `<a href="${l.link}">${img}</a>` : img}</div>`;
+  }).join("");
 
   // 1) Register a UNIQUE visitor: silently "download" the tiny counter file,
   //    but only the first time this browser opens the page.
@@ -62,8 +106,15 @@
   function fromApi() {
     return fetch(`https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/releases?per_page=100`)
       .then(r => { if (!r.ok) throw new Error("API " + r.status); return r.json(); })
-      .then(releases => ({ updated: null, assets: releases.flatMap(rel => rel.assets) }));
+      .then(releases => ({
+        updated: null,
+        assets: releases.filter(rel => !rel.draft).flatMap(rel =>
+          rel.assets.map(a => ({ ...a, folder: rel.name || rel.tag_name })))
+      }));
   }
+
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const label = name => name.replace(/\.pdf$/i, "").replace(/[._-]+/g, " ");
 
   fromStatsFile()
     .catch(fromApi)
@@ -73,17 +124,33 @@
       document.getElementById("views").textContent =
         counter ? counter.download_count.toLocaleString() : "–";
 
-      // PDF list with per-file download counts
-      const pdfs = assets.filter(a => a.name.toLowerCase().endsWith(".pdf"))
-                         .sort((a, b) => a.name.localeCompare(b.name));
-      const tbody = document.getElementById("files");
-      tbody.innerHTML = pdfs.length ? pdfs.map(a => `
-        <tr>
-          <td>${a.name.replace(/\.pdf$/i, "").replace(/[._-]+/g, " ")}</td>
-          <td class="num">${a.download_count.toLocaleString()}</td>
-          <td class="num"><a class="btn" href="${a.browser_download_url}">Download</a></td>
-        </tr>`).join("")
-        : '<tr><td colspan="3">No documents yet.</td></tr>';
+      // Group PDFs by folder (= release title)
+      const groups = {};
+      assets.filter(a => a.name.toLowerCase().endsWith(".pdf"))
+            .forEach(a => (groups[a.folder || "Documents"] ||= []).push(a));
+      const names = Object.keys(groups)
+            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+
+      const box = document.getElementById("folders");
+      if (!names.length) { box.innerHTML = '<p class="msg">No documents yet.</p>'; return; }
+
+      box.innerHTML = names.map(name => {
+        const pdfs = groups[name].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+        return `
+        <details class="folder"${FOLDERS_OPEN ? " open" : ""}>
+          <summary>${esc(name)}<span class="folder-count">${pdfs.length} document${pdfs.length === 1 ? "" : "s"}</span></summary>
+          <table>
+            <thead><tr><th>Document</th><th class="num">Downloads</th><th></th></tr></thead>
+            <tbody>${pdfs.map(a => `
+              <tr>
+                <td>${esc(label(a.name))}</td>
+                <td class="num">${a.download_count.toLocaleString()}</td>
+                <td class="num"><a class="btn" href="${a.browser_download_url}">Download</a></td>
+              </tr>`).join("")}
+            </tbody>
+          </table>
+        </details>`;
+      }).join("");
 
       if (updated) {
         document.getElementById("updated").textContent =
@@ -92,8 +159,8 @@
     })
     .catch(() => {
       document.getElementById("views").textContent = "–";
-      document.getElementById("files").innerHTML =
-        '<tr><td colspan="3">Could not load the list. Please try again later.</td></tr>';
+      document.getElementById("folders").innerHTML =
+        '<p class="msg">Could not load the list. Please try again later.</p>';
     });
 </script>
 

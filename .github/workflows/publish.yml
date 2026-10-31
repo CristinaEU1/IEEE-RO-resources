@@ -36,6 +36,7 @@ jobs:
         run: |
           mkdir -p _site
           cp index.html _site/
+          if [ -d logos ]; then cp -r logos _site/; fi
 
       - name: Fetch download counts into stats.json
         env:
@@ -44,8 +45,10 @@ jobs:
           gh api "repos/${{ github.repository }}/releases?per_page=100" > releases.json
           jq '{
                 updated: (now | todate),
-                assets: [ .[] | select(.draft | not) | .assets[]
-                          | {name, download_count, browser_download_url} ]
+                assets: [ .[] | select(.draft | not)
+                          | (if (.name // "") == "" then .tag_name else .name end) as $folder
+                          | .assets[]
+                          | {name, download_count, browser_download_url, folder: $folder} ]
               }' releases.json > _site/stats.json
           cat _site/stats.json
 
