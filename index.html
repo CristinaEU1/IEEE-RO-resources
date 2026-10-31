@@ -19,7 +19,7 @@
 <body>
 
 <h1>IEEE Romania Resources</h1>
-<p class="views">Page views: <strong id="views">…</strong></p>
+<p class="views">Unique visitors: <strong id="views">…</strong></p>
 
 <table>
   <thead><tr><th>Document</th><th class="num">Downloads</th><th></th></tr></thead>
@@ -34,10 +34,19 @@
   const VIEW_ASSET  = "pageviews.dat";         // tiny file attached to that release
   // =========================================
 
-  // 1) Register this page view: silently "download" the tiny counter file.
+  // 1) Register a UNIQUE visitor: silently "download" the tiny counter file,
+  //    but only the first time this browser opens the page.
   //    GitHub counts it like any other release download.
-  new Image().src =
-    `https://github.com/${GH_OWNER}/${GH_REPO}/releases/download/${GH_TAG}/${VIEW_ASSET}?t=${Date.now()}`;
+  const SEEN_KEY = "ieee-ro-resources-visited";
+  let firstVisit = true;
+  try {
+    firstVisit = !localStorage.getItem(SEEN_KEY);
+    if (firstVisit) localStorage.setItem(SEEN_KEY, new Date().toISOString());
+  } catch (e) { /* storage blocked: count the visit anyway */ }
+  if (firstVisit) {
+    new Image().src =
+      `https://github.com/${GH_OWNER}/${GH_REPO}/releases/download/${GH_TAG}/${VIEW_ASSET}?t=${Date.now()}`;
+  }
 
   // 2) Read all release files and their download counts from GitHub's API
   fetch(`https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/releases?per_page=100`)
