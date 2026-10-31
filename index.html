@@ -14,6 +14,7 @@
   td.num { text-align: right; white-space: nowrap; }
   a.btn { background: #0b5cad; color: #fff; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 0.9em; }
   a.btn:hover { background: #084a8c; }
+  .updated { color: #999; font-size: 0.8em; margin-top: 16px; }
 </style>
 </head>
 <body>
@@ -25,6 +26,7 @@
   <thead><tr><th>Document</th><th class="num">Downloads</th><th></th></tr></thead>
   <tbody id="files"><tr><td colspan="3">Loading…</td></tr></tbody>
 </table>
+<p class="updated" id="updated"></p>
 
 <script>
   // ===== SETTINGS: change these values =====
@@ -48,28 +50,45 @@
       `https://github.com/${GH_OWNER}/${GH_REPO}/releases/download/${GH_TAG}/${VIEW_ASSET}?t=${Date.now()}`;
   }
 
-  // 2) Read all release files and their download counts from GitHub's API
-  fetch(`https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/releases?per_page=100`)
-    .then(r => r.json())
-    .then(releases => {
-      const all = releases.flatMap(rel => rel.assets);
+  // 2) Get the numbers.
+  //    First choice: stats.json, refreshed by GitHub Actions about every 15 minutes
+  //    (no limit on how many visitors can read it).
+  //    Fallback: ask GitHub's API directly (limited to 60 requests/hour per connection).
+  function fromStatsFile() {
+    return fetch(`stats.json?t=${Date.now()}`)
+      .then(r => { if (!r.ok) throw new Error("no stats.json"); return r.json(); })
+      .then(s => { if (!Array.isArray(s.assets)) throw new Error("bad stats.json"); return s; });
+  }
+  function fromApi() {
+    return fetch(`https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/releases?per_page=100`)
+      .then(r => { if (!r.ok) throw new Error("API " + r.status); return r.json(); })
+      .then(releases => ({ updated: null, assets: releases.flatMap(rel => rel.assets) }));
+  }
 
-      // Page views = downloads of the counter file
-      const counter = all.find(a => a.name === VIEW_ASSET);
+  fromStatsFile()
+    .catch(fromApi)
+    .then(({ updated, assets }) => {
+      // Visitors = downloads of the counter file
+      const counter = assets.find(a => a.name === VIEW_ASSET);
       document.getElementById("views").textContent =
         counter ? counter.download_count.toLocaleString() : "–";
 
       // PDF list with per-file download counts
-      const pdfs = all.filter(a => a.name.toLowerCase().endsWith(".pdf"))
-                      .sort((a, b) => a.name.localeCompare(b.name));
+      const pdfs = assets.filter(a => a.name.toLowerCase().endsWith(".pdf"))
+                         .sort((a, b) => a.name.localeCompare(b.name));
       const tbody = document.getElementById("files");
-      if (!pdfs.length) { tbody.innerHTML = '<tr><td colspan="3">No documents yet.</td></tr>'; return; }
-      tbody.innerHTML = pdfs.map(a => `
+      tbody.innerHTML = pdfs.length ? pdfs.map(a => `
         <tr>
           <td>${a.name.replace(/\.pdf$/i, "").replace(/[._-]+/g, " ")}</td>
           <td class="num">${a.download_count.toLocaleString()}</td>
           <td class="num"><a class="btn" href="${a.browser_download_url}">Download</a></td>
-        </tr>`).join("");
+        </tr>`).join("")
+        : '<tr><td colspan="3">No documents yet.</td></tr>';
+
+      if (updated) {
+        document.getElementById("updated").textContent =
+          "Numbers last updated: " + new Date(updated).toLocaleString();
+      }
     })
     .catch(() => {
       document.getElementById("views").textContent = "–";

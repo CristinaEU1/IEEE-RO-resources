@@ -1,0 +1,59 @@
+# Publishes the website and refreshes the download/visitor numbers.
+# Visitors read stats.json from the site instead of calling GitHub's API,
+# so they never hit GitHub's 60-requests-per-hour limit.
+
+name: Publish site and refresh stats
+
+on:
+  push:
+    branches: [main]          # any change to the repo
+  release:
+    types: [published, edited] # release created or edited
+  schedule:
+    - cron: "*/15 * * * *"    # about every 15 minutes (GitHub may run it a bit later)
+  workflow_dispatch:           # "Run workflow" button in the Actions tab
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Get the site files
+        uses: actions/checkout@v4
+
+      - name: Build the site folder
+        run: |
+          mkdir -p _site
+          cp index.html _site/
+
+      - name: Fetch download counts into stats.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/releases?per_page=100" > releases.json
+          jq '{
+                updated: (now | todate),
+                assets: [ .[] | select(.draft | not) | .assets[]
+                          | {name, download_count, browser_download_url} ]
+              }' releases.json > _site/stats.json
+          cat _site/stats.json
+
+      - name: Package the site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Publish to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
